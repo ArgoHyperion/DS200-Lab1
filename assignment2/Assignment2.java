@@ -1,6 +1,5 @@
 import java.io.IOException;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.*;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -9,19 +8,19 @@ import org.apache.hadoop.mapreduce.*;
 import org.apache.hadoop.mapreduce.lib.input.*;
 import org.apache.hadoop.mapreduce.lib.output.*;
 
-public class Assignment1 {
+public class Assignment2 {
 
-    public static class TitleMapper extends Mapper<LongWritable, Text, Text, Text> {
+    public static class MovieMapper extends Mapper<LongWritable, Text, Text, Text> {
         public void map(LongWritable key, Text value, Context context)
                 throws IOException, InterruptedException {
 
             String[] parts = value.toString().split(",");
 
-            if (parts.length >= 2) {
+            if (parts.length >= 3) {
                 String movieId = parts[0].trim();
-                String title = parts[1].trim();
+                String genres = parts[2].trim();
 
-                context.write(new Text(movieId), new Text("T|" + title));
+                context.write(new Text(movieId), new Text("M|" + genres));
             }
         }
     }
@@ -30,7 +29,6 @@ public class Assignment1 {
         public void map(LongWritable key, Text value, Context context)
                 throws IOException, InterruptedException {
 
-            // UserID,MovieID,Rating,Timestamp
             String[] parts = value.toString().split(",");
 
             if (parts.length >= 3) {
@@ -44,39 +42,33 @@ public class Assignment1 {
 
     public static class ReducerClass extends Reducer<Text, Text, Text, Text> {
 
-        private Map<String, String> resultMap = new TreeMap<>();
-        private String maxMovie = "";
-        private double maxRating = Double.MIN_VALUE;
+        private Map<String, Double> sumMap = new TreeMap<>();
+        private Map<String, Integer> countMap = new TreeMap<>();
 
         public void reduce(Text key, Iterable<Text> values, Context context)
                 throws IOException, InterruptedException {
 
-            String title = "";
-            double sum = 0;
-            int count = 0;
+            List<Double> ratings = new ArrayList<>();
+            String[] genres = null;
 
             for (Text val : values) {
                 String v = val.toString();
 
-                if (v.startsWith("T|")) {
-                    title = v.substring(2);
+                if (v.startsWith("M|")) {
+                    genres = v.substring(2).split("\\|");
                 } else if (v.startsWith("R|")) {
-                    double rating = Double.parseDouble(v.substring(2).trim());
-                    sum += rating;
-                    count++;
+                    ratings.add(Double.parseDouble(v.substring(2)));
                 }
             }
 
-            if (!title.isEmpty() && count > 0) {
-                double avg = sum / count;
+            if (genres != null && ratings.size() > 0) {
+                for (String genre : genres) {
+                    genre = genre.trim();
 
-                String info = String.format("Average rating: %.2f (Total ratings: %d)", avg, count);
-
-                resultMap.put(title, info);
-
-                if (count >= 5 && avg > maxRating) {
-                    maxRating = avg;
-                    maxMovie = title;
+                    for (double r : ratings) {
+                        sumMap.put(genre, sumMap.getOrDefault(genre, 0.0) + r);
+                        countMap.put(genre, countMap.getOrDefault(genre, 0) + 1);
+                    }
                 }
             }
         }
@@ -84,14 +76,13 @@ public class Assignment1 {
         protected void cleanup(Context context)
                 throws IOException, InterruptedException {
 
-            for (Map.Entry<String, String> entry : resultMap.entrySet()) {
-                context.write(new Text(entry.getKey()), new Text(entry.getValue()));
-            }
+            for (String genre : sumMap.keySet()) {
+                double sum = sumMap.get(genre);
+                int count = countMap.get(genre);
+                double avg = sum / count;
 
-            if (!maxMovie.isEmpty()) {
-                context.write(new Text("RESULT"),
-                    new Text(maxMovie + " is the highest rated movie with an average rating of "
-                            + maxRating + " among movies with at least 5 ratings."));
+                String result = String.format("Avg: %.2f, Count: %d", avg, count);
+                context.write(new Text(genre), new Text(result));
             }
         }
     }
@@ -99,18 +90,20 @@ public class Assignment1 {
     public static void main(String[] args) throws Exception {
 
         Configuration conf = new Configuration();
-        Job job = Job.getInstance(conf, "Movie Rating Join");
+        Job job = Job.getInstance(conf, "Genre Rating Analysis");
 
-        job.setJarByClass(Assignment1.class);
+        job.setJarByClass(Assignment2.class);
 
-        // Multiple input
         MultipleInputs.addInputPath(job, new Path(args[0] + "/movies.txt"),
-                TextInputFormat.class, TitleMapper.class);
+                TextInputFormat.class, MovieMapper.class);
 
         MultipleInputs.addInputPath(job, new Path(args[0] + "/ratings_1.txt"),
                 TextInputFormat.class, RatingMapper.class);
 
         MultipleInputs.addInputPath(job, new Path(args[0] + "/ratings_2.txt"),
+                TextInputFormat.class, RatingMapper.class);
+
+        MultipleInputs.addInputPath(job, new Path(args[0] + "/users.txt"),
                 TextInputFormat.class, RatingMapper.class);
 
         job.setReducerClass(ReducerClass.class);
