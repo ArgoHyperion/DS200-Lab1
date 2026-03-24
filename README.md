@@ -1,6 +1,7 @@
 # DS200.Q21-Lab1
 
-**Họ tên:** Hồ Hoàng  Quân
+**Họ tên:** Hồ Hoàng Quân
+
 **MSSV:** 23520375
 
 ## Cấu trúc thư mục
